@@ -71,6 +71,24 @@ class RegistrationRepository:
             .all()
         )
 
+    def list_by_user(self, user_id: UUID) -> list[Registration]:
+        return (
+            self.db.query(Registration)
+            .filter(Registration.user_id == user_id)
+            .order_by(Registration.created_at)
+            .all()
+        )
+
+    def list_activity_registrations_by_user(
+        self, user_id: UUID
+    ) -> list[ActivityRegistration]:
+        return (
+            self.db.query(ActivityRegistration)
+            .filter(ActivityRegistration.user_id == user_id)
+            .order_by(ActivityRegistration.created_at)
+            .all()
+        )
+
     def count_active_by_event_ids(self, event_ids: list[UUID]) -> dict[UUID, int]:
         if not event_ids:
             return {}
@@ -158,7 +176,7 @@ class RegistrationRepository:
         user_id: UUID,
         token: str,
         expires_at: datetime,
-    ) -> Registration:
+    ) -> tuple[Registration, ValidationToken]:
         registration = Registration(event_id=event_id, user_id=user_id)
         authentication_token = ValidationToken(
             event_id=event_id,
@@ -170,7 +188,8 @@ class RegistrationRepository:
         self.db.add(authentication_token)
         self.db.commit()
         self.db.refresh(registration)
-        return registration
+        self.db.refresh(authentication_token)
+        return registration, authentication_token
 
     def create_authentication_token(
         self,

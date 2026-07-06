@@ -13,7 +13,7 @@ from src.domain.events.client import EventsClient
 from src.domain.events.schemas import ActivityResponse, EventResponse
 
 from .enums import RegistrationStatus
-from .model import ActivityRegistration, Registration
+from .model import ActivityRegistration, Registration, ValidationToken
 from .repository import RegistrationRepository, get_registration_repository
 from .schemas import AvailableEventResponse
 
@@ -39,7 +39,7 @@ class RegistrationService:
         authenticated_user_id: UUID,
         events_client: EventsClient,
         allow_different_user: bool = False,
-    ) -> Registration:
+    ) -> tuple[Registration, ValidationToken]:
         if authenticated_user_id != user_id and not allow_different_user:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
@@ -71,6 +71,14 @@ class RegistrationService:
 
     def list_event_registrations(self, event_id: UUID) -> list[Registration]:
         return self.repository.list_by_event(event_id)
+
+    def list_user_registrations(self, user_id: UUID) -> list[Registration]:
+        return self.repository.list_by_user(user_id)
+
+    def list_user_activity_registrations(
+        self, user_id: UUID
+    ) -> list[ActivityRegistration]:
+        return self.repository.list_activity_registrations_by_user(user_id)
 
     def list_available_events(
         self,

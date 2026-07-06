@@ -25,6 +25,21 @@ class RegistrationResponse(BaseModel):
     status: RegistrationStatus
     created_at: datetime = Field(..., alias="createdAt")
     updated_at: datetime | None = Field(None, alias="updatedAt")
+    # Dev/demo: expõe o registro do token de confirmação (id + código de 8 chars)
+    # apenas na criação. NÃO é comportamento de produção — o código só é devolvido
+    # aqui porque o projeto não tem envio de e-mail real; em produção o token iria
+    # só por e-mail e nunca na resposta HTTP. Exposto de propósito para o frontend
+    # do T3 mockar o "e-mail recebido" em tela e fechar o fluxo de confirmação.
+    confirmation_id: UUID | None = Field(
+        None,
+        alias="confirmationId",
+        description="ID da solicitação de confirmação (usar em POST /events/confirmation/{id})",
+    )
+    confirmation_token: str | None = Field(
+        None,
+        alias="confirmationToken",
+        description="Código alfanumérico de 8 caracteres (simula o e-mail de confirmação)",
+    )
 
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
@@ -78,6 +93,21 @@ class GuestRegistrationResponse(BaseModel):
         None,
         alias="updatedAt",
         description="Data/hora da última atualização da inscrição, se houver",
+    )
+    # Dev/demo: preenchidos apenas na criação da inscrição; ausentes nas listagens.
+    # NÃO é comportamento de produção — o código só é devolvido aqui porque o
+    # projeto não tem envio de e-mail real; em produção o token iria só por e-mail
+    # e nunca na resposta HTTP. Exposto de propósito para o frontend do T3 mockar
+    # o "e-mail recebido" em tela e fechar o fluxo de confirmação.
+    confirmation_id: UUID | None = Field(
+        None,
+        alias="confirmationId",
+        description="ID da solicitação de confirmação (usar em POST /events/confirmation/{id})",
+    )
+    confirmation_token: str | None = Field(
+        None,
+        alias="confirmationToken",
+        description="Código alfanumérico de 8 caracteres (simula o e-mail de confirmação)",
     )
 
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)

@@ -1051,3 +1051,119 @@ def test_post_activity_registration_rejects_full_activity(
 def test_validation_token_belongs_to_registration_domain_metadata() -> None:
     assert ValidationToken.__table__.name == "authentication_tokens"
     assert Base.metadata.tables["authentication_tokens"] is ValidationToken.__table__
+
+
+def test_register_response_exposes_confirmation_id_and_token(
+    client: TestClient, db_session: Session
+) -> None:
+    event_id = uuid4()
+    user_id = uuid4()
+    override_auth_user(user_id)
+    override_open_event(event_id)
+
+    response = client.post(
+        f"/events/{event_id}/guests",
+        json={"userId": str(user_id)},
+        headers={"Authorization": "Bearer access-token"},
+    )
+
+    assert response.status_code == 201
+    payload = response.json()
+
+    auth_token = (
+        db_session.query(ValidationToken)
+        .filter_by(event_id=event_id, user_id=user_id)
+        .one()
+    )
+    assert payload["confirmationId"] == str(auth_token.id)
+    assert payload["confirmationToken"] == auth_token.token
+    assert len(payload["confirmationToken"]) == 8
+
+
+def test_list_user_registrations_returns_own_rows(
+    client: TestClient, db_session: Session
+) -> None:
+    user_id = uuid4()
+    other_user_id = uuid4()
+    own_event_ids = [uuid4(), uuid4()]
+    for event_id in own_event_ids:
+        db_session.add(Registration(event_id=event_id, user_id=user_id))
+    db_session.add(Registration(event_id=uuid4(), user_id=other_user_id))
+    db_session.commit()
+    override_auth_user(user_id)
+
+    response = client.get(
+        f"/users/{user_id}/registrations",
+        headers={"Authorization": "Bearer access-token"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert {row["eventId"] for row in payload} == {str(e) for e in own_event_ids}
+    assert all(row["userId"] == str(user_id) for row in payload)
+
+
+def test_list_user_registrations_rejects_other_participant(
+    client: TestClient,
+) -> None:
+    override_auth_user(uuid4())
+
+    response = client.get(
+        f"/users/{uuid4()}/registrations",
+        headers={"Authorization": "Bearer access-token"},
+    )
+
+    assert response.status_code == 403
+
+
+def test_list_user_registrations_allows_manager_for_any_user(
+    client: TestClient, db_session: Session
+) -> None:
+    target_user_id = uuid4()
+    event_id = uuid4()
+    db_session.add(Registration(event_id=event_id, user_id=target_user_id))
+    db_session.commit()
+    override_auth_user(uuid4(), "MANAGER")
+
+    response = client.get(
+        f"/users/{target_user_id}/registrations",
+        headers={"Authorization": "Bearer access-token"},
+    )
+
+    assert response.status_code == 200
+    assert [row["eventId"] for row in response.json()] == [str(event_id)]
+
+
+def test_list_user_activity_registrations_returns_own_rows(
+    client: TestClient, db_session: Session
+) -> None:
+    user_id = uuid4()
+    event_id = uuid4()
+    activity_ids = [uuid4(), uuid4()]
+    for activity_id in activity_ids:
+        db_session.add(
+            ActivityRegistration(
+                activity_id=activity_id,
+                user_id=user_id,
+                event_id=event_id,
+            )
+        )
+    db_session.add(
+        ActivityRegistration(
+            activity_id=uuid4(),
+            user_id=uuid4(),
+            event_id=event_id,
+        )
+    )
+    db_session.commit()
+    override_auth_user(user_id)
+
+    response = client.get(
+        f"/users/{user_id}/activities",
+        headers={"Authorization": "Bearer access-token"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert {row["activityId"] for row in payload} == {str(a) for a in activity_ids}
+    assert all(row["userId"] == str(user_id) for row in payload)
