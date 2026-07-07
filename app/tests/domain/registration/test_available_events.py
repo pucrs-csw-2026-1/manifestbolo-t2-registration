@@ -118,15 +118,13 @@ def test_service_lists_only_open_not_full_events() -> None:
     available_events = service.list_available_events(events_client)  # type: ignore[arg-type]
 
     assert repository.counted_event_ids == [available_event_id, full_event_id]
-    assert available_events == [
-        AvailableEventResponse(
-            eventId=str(available_event_id),
-            name="Evento com vagas",
-            maxCapacity=3,
-            registeredCount=2,
-            availableSlots=1,
-        )
-    ]
+    assert len(available_events) == 1
+    result = available_events[0]
+    assert result.event_id == str(available_event_id)
+    assert result.name == "Evento com vagas"
+    assert result.max_capacity == 3
+    assert result.registered_count == 2
+    assert result.available_slots == 1
 
 
 def test_available_events_endpoint_uses_registration_service() -> None:
@@ -147,5 +145,12 @@ def test_available_events_endpoint_uses_registration_service() -> None:
             "maxCapacity": 10,
             "registeredCount": 3,
             "availableSlots": 7,
+            "description": None,
+            "category": None,
+            "startsAt": None,
+            "endsAt": None,
+            "registrationDeadline": None,
+            "venue": None,
+            "city": None,
         }
     ]

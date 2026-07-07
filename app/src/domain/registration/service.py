@@ -106,6 +106,7 @@ class RegistrationService:
             if available_slots <= 0:
                 continue
 
+            location = event.location
             available_events.append(
                 AvailableEventResponse(
                     eventId=event.id,
@@ -113,6 +114,13 @@ class RegistrationService:
                     maxCapacity=event.capacity,
                     registeredCount=registered_count,
                     availableSlots=available_slots,
+                    description=event.description,
+                    category=event.category,
+                    startsAt=event.starts_at,
+                    endsAt=event.ends_at,
+                    registrationDeadline=event.registration_deadline,
+                    venue=location.venue if location else None,
+                    city=location.city if location else None,
                 )
             )
 

@@ -69,6 +69,24 @@ class AvailableEventResponse(BaseModel):
         alias="availableSlots",
         description="Vagas restantes (max_capacity - registered_count)",
     )
+    # Campos descritivos vindos do events-service — o serviço já os busca ao
+    # calcular a disponibilidade; são repassados para o frontend renderizar a
+    # listagem (categoria, datas, local, descrição, prazo de inscrição).
+    description: str | None = Field(None, description="Descrição do evento")
+    category: str | None = Field(None, description="Categoria do evento")
+    starts_at: datetime | None = Field(
+        None, alias="startsAt", description="Início do evento"
+    )
+    ends_at: datetime | None = Field(
+        None, alias="endsAt", description="Encerramento do evento"
+    )
+    registration_deadline: datetime | None = Field(
+        None,
+        alias="registrationDeadline",
+        description="Prazo final para inscrição, se houver",
+    )
+    venue: str | None = Field(None, description="Local/espaço do evento")
+    city: str | None = Field(None, description="Cidade do evento")
 
     model_config = ConfigDict(populate_by_name=True)
 

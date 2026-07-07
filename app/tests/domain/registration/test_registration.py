@@ -13,7 +13,7 @@ from src.database import Base
 from src.domain.auth.client import get_auth_client
 from src.domain.auth.schemas import UserResponse
 from src.domain.events.client import get_events_client
-from src.domain.events.schemas import ActivityResponse, EventResponse
+from src.domain.events.schemas import ActivityResponse, EventLocation, EventResponse
 from src.domain.registration.enums import RegistrationStatus
 from src.domain.registration.model import (
     ActivityRegistration,
@@ -93,15 +93,27 @@ def event_response(
     capacity: int = 10,
     ends_at: datetime | None = None,
     deleted_at: datetime | None = None,
+    description: str | None = None,
+    category: str | None = None,
+    registration_deadline: datetime | None = None,
+    venue: str | None = None,
+    city: str | None = None,
 ) -> EventResponse:
     now = datetime.now(UTC)
+    location = None
+    if venue is not None or city is not None:
+        location = EventLocation(venue=venue, city=city)
     return EventResponse(
         id=event_id,
         title=title,
+        description=description,
         starts_at=now + timedelta(days=1),
         ends_at=ends_at or now + timedelta(days=2),
         timezone="America/Sao_Paulo",
+        registration_deadline=registration_deadline,
+        location=location,
         capacity=capacity,
+        category=category,
         created_at=now,
         updated_at=now,
         deleted_at=deleted_at,
@@ -260,15 +272,25 @@ def test_list_available_events_crosses_events_capacity_with_local_registrations(
     response = client.get("/events/available")
 
     assert response.status_code == 200
-    assert response.json() == [
-        {
-            "eventId": str(available_event_id),
-            "name": "Evento com vagas",
-            "maxCapacity": 3,
-            "registeredCount": 2,
-            "availableSlots": 1,
-        }
-    ]
+    payload = response.json()
+    assert len(payload) == 1
+    ev = payload[0]
+    assert ev["eventId"] == str(available_event_id)
+    assert ev["name"] == "Evento com vagas"
+    assert ev["maxCapacity"] == 3
+    assert ev["registeredCount"] == 2
+    assert ev["availableSlots"] == 1
+    # campos enriquecidos presentes no contrato (event_response não os preenche aqui)
+    for enriched_field in (
+        "description",
+        "category",
+        "startsAt",
+        "endsAt",
+        "registrationDeadline",
+        "venue",
+        "city",
+    ):
+        assert enriched_field in ev
 
 
 def test_register_endpoint_creates_authentication_token(
@@ -1051,6 +1073,36 @@ def test_post_activity_registration_rejects_full_activity(
 def test_validation_token_belongs_to_registration_domain_metadata() -> None:
     assert ValidationToken.__table__.name == "authentication_tokens"
     assert Base.metadata.tables["authentication_tokens"] is ValidationToken.__table__
+
+
+def test_list_available_events_includes_enriched_event_fields(
+    client: TestClient,
+) -> None:
+    event_id = uuid4()
+    override_events(
+        [
+            event_response(
+                str(event_id),
+                title="Congresso de IA",
+                capacity=100,
+                description="Três dias sobre IA aplicada.",
+                category="Acadêmico",
+                venue="Centro de Convenções",
+                city="São Paulo, SP",
+            )
+        ]
+    )
+
+    response = client.get("/events/available")
+
+    assert response.status_code == 200
+    ev = response.json()[0]
+    assert ev["description"] == "Três dias sobre IA aplicada."
+    assert ev["category"] == "Acadêmico"
+    assert ev["venue"] == "Centro de Convenções"
+    assert ev["city"] == "São Paulo, SP"
+    assert ev["startsAt"] is not None
+    assert ev["endsAt"] is not None
 
 
 def test_register_response_exposes_confirmation_id_and_token(

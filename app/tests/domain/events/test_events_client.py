@@ -42,6 +42,7 @@ def client_with_handler(
     return EventsClient(
         base_url="http://events.test",
         transport=httpx.MockTransport(handler),
+        token_provider=lambda **_: "test-token",
     )
 
 
@@ -195,9 +196,56 @@ def test_events_client_propagates_events_service_4xx(status_code: int) -> None:
 def test_events_client_maps_events_service_unavailable(
     transport: httpx.MockTransport,
 ) -> None:
-    client = EventsClient(base_url="http://events.test", transport=transport)
+    client = EventsClient(
+        base_url="http://events.test",
+        transport=transport,
+        token_provider=lambda **_: "test-token",
+    )
 
     with pytest.raises(HTTPException) as exc_info:
         client.list_events()
 
     assert exc_info.value.status_code == 503
+
+
+def test_request_sends_bearer_service_token() -> None:
+    seen: dict[str, str | None] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["auth"] = request.headers.get("authorization")
+        return httpx.Response(
+            200,
+            json={"data": [event_payload()], "total": 1, "page": 1, "limit": 20},
+        )
+
+    client_with_handler(handler).list_events()
+
+    assert seen["auth"] == "Bearer test-token"
+
+
+def test_request_refreshes_token_and_retries_on_401() -> None:
+    calls: list[str | None] = []
+
+    def provider(*, force_refresh: bool = False) -> str:
+        return "new-token" if force_refresh else "old-token"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        auth = request.headers.get("authorization")
+        calls.append(auth)
+        if auth == "Bearer old-token":
+            return httpx.Response(401, json={"error": "expired"})
+        return httpx.Response(
+            200,
+            json={"data": [event_payload()], "total": 1, "page": 1, "limit": 20},
+        )
+
+    client = EventsClient(
+        base_url="http://events.test",
+        transport=httpx.MockTransport(handler),
+        token_provider=provider,
+    )
+
+    result = client.list_events()
+
+    assert result.total == 1
+    assert calls == ["Bearer old-token", "Bearer new-token"]

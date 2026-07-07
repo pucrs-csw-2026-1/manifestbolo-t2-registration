@@ -32,6 +32,14 @@ class Settings(BaseSettings):
     AUTH_SERVICE_BASE_URL: str = "http://localhost:8080"
     EVENTS_SERVICE_BASE_URL: str = "http://localhost:3000"
 
+    # O events-service (avengers) exige Bearer em TODAS as rotas. O T2 se
+    # autentica como serviço (OAuth2 client_credentials) no auth-service e envia
+    # o token de máquina resultante. Em produção, configure um client dedicado;
+    # os defaults abaixo batem com o client de dev do 0x_t1.
+    EVENTS_SERVICE_CLIENT_ID: str = "metrics-service"
+    EVENTS_SERVICE_CLIENT_SECRET: str = "dev-metrics-secret"
+    EVENTS_SERVICE_CLIENT_SCOPE: str | None = None
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
