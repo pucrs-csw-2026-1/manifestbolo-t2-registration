@@ -13,7 +13,7 @@ from src.database import Base
 from src.domain.auth.client import get_auth_client
 from src.domain.auth.schemas import UserResponse
 from src.domain.events.client import get_events_client
-from src.domain.events.schemas import ActivityResponse, EventResponse
+from src.domain.events.schemas import ActivityResponse, EventLocation, EventResponse
 from src.domain.registration.enums import RegistrationStatus
 from src.domain.registration.model import (
     ActivityRegistration,
@@ -93,15 +93,27 @@ def event_response(
     capacity: int = 10,
     ends_at: datetime | None = None,
     deleted_at: datetime | None = None,
+    description: str | None = None,
+    category: str | None = None,
+    registration_deadline: datetime | None = None,
+    venue: str | None = None,
+    city: str | None = None,
 ) -> EventResponse:
     now = datetime.now(UTC)
+    location = None
+    if venue is not None or city is not None:
+        location = EventLocation(venue=venue, city=city)
     return EventResponse(
         id=event_id,
         title=title,
+        description=description,
         starts_at=now + timedelta(days=1),
         ends_at=ends_at or now + timedelta(days=2),
         timezone="America/Sao_Paulo",
+        registration_deadline=registration_deadline,
+        location=location,
         capacity=capacity,
+        category=category,
         created_at=now,
         updated_at=now,
         deleted_at=deleted_at,
@@ -260,15 +272,25 @@ def test_list_available_events_crosses_events_capacity_with_local_registrations(
     response = client.get("/events/available")
 
     assert response.status_code == 200
-    assert response.json() == [
-        {
-            "eventId": str(available_event_id),
-            "name": "Evento com vagas",
-            "maxCapacity": 3,
-            "registeredCount": 2,
-            "availableSlots": 1,
-        }
-    ]
+    payload = response.json()
+    assert len(payload) == 1
+    ev = payload[0]
+    assert ev["eventId"] == str(available_event_id)
+    assert ev["name"] == "Evento com vagas"
+    assert ev["maxCapacity"] == 3
+    assert ev["registeredCount"] == 2
+    assert ev["availableSlots"] == 1
+    # campos enriquecidos presentes no contrato (event_response não os preenche aqui)
+    for enriched_field in (
+        "description",
+        "category",
+        "startsAt",
+        "endsAt",
+        "registrationDeadline",
+        "venue",
+        "city",
+    ):
+        assert enriched_field in ev
 
 
 def test_register_endpoint_creates_authentication_token(
@@ -1051,3 +1073,149 @@ def test_post_activity_registration_rejects_full_activity(
 def test_validation_token_belongs_to_registration_domain_metadata() -> None:
     assert ValidationToken.__table__.name == "authentication_tokens"
     assert Base.metadata.tables["authentication_tokens"] is ValidationToken.__table__
+
+
+def test_list_available_events_includes_enriched_event_fields(
+    client: TestClient,
+) -> None:
+    event_id = uuid4()
+    override_events(
+        [
+            event_response(
+                str(event_id),
+                title="Congresso de IA",
+                capacity=100,
+                description="Três dias sobre IA aplicada.",
+                category="Acadêmico",
+                venue="Centro de Convenções",
+                city="São Paulo, SP",
+            )
+        ]
+    )
+
+    response = client.get("/events/available")
+
+    assert response.status_code == 200
+    ev = response.json()[0]
+    assert ev["description"] == "Três dias sobre IA aplicada."
+    assert ev["category"] == "Acadêmico"
+    assert ev["venue"] == "Centro de Convenções"
+    assert ev["city"] == "São Paulo, SP"
+    assert ev["startsAt"] is not None
+    assert ev["endsAt"] is not None
+
+
+def test_register_response_exposes_confirmation_id_and_token(
+    client: TestClient, db_session: Session
+) -> None:
+    event_id = uuid4()
+    user_id = uuid4()
+    override_auth_user(user_id)
+    override_open_event(event_id)
+
+    response = client.post(
+        f"/events/{event_id}/guests",
+        json={"userId": str(user_id)},
+        headers={"Authorization": "Bearer access-token"},
+    )
+
+    assert response.status_code == 201
+    payload = response.json()
+
+    auth_token = (
+        db_session.query(ValidationToken)
+        .filter_by(event_id=event_id, user_id=user_id)
+        .one()
+    )
+    assert payload["confirmationId"] == str(auth_token.id)
+    assert payload["confirmationToken"] == auth_token.token
+    assert len(payload["confirmationToken"]) == 8
+
+
+def test_list_user_registrations_returns_own_rows(
+    client: TestClient, db_session: Session
+) -> None:
+    user_id = uuid4()
+    other_user_id = uuid4()
+    own_event_ids = [uuid4(), uuid4()]
+    for event_id in own_event_ids:
+        db_session.add(Registration(event_id=event_id, user_id=user_id))
+    db_session.add(Registration(event_id=uuid4(), user_id=other_user_id))
+    db_session.commit()
+    override_auth_user(user_id)
+
+    response = client.get(
+        f"/users/{user_id}/registrations",
+        headers={"Authorization": "Bearer access-token"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert {row["eventId"] for row in payload} == {str(e) for e in own_event_ids}
+    assert all(row["userId"] == str(user_id) for row in payload)
+
+
+def test_list_user_registrations_rejects_other_participant(
+    client: TestClient,
+) -> None:
+    override_auth_user(uuid4())
+
+    response = client.get(
+        f"/users/{uuid4()}/registrations",
+        headers={"Authorization": "Bearer access-token"},
+    )
+
+    assert response.status_code == 403
+
+
+def test_list_user_registrations_allows_manager_for_any_user(
+    client: TestClient, db_session: Session
+) -> None:
+    target_user_id = uuid4()
+    event_id = uuid4()
+    db_session.add(Registration(event_id=event_id, user_id=target_user_id))
+    db_session.commit()
+    override_auth_user(uuid4(), "MANAGER")
+
+    response = client.get(
+        f"/users/{target_user_id}/registrations",
+        headers={"Authorization": "Bearer access-token"},
+    )
+
+    assert response.status_code == 200
+    assert [row["eventId"] for row in response.json()] == [str(event_id)]
+
+
+def test_list_user_activity_registrations_returns_own_rows(
+    client: TestClient, db_session: Session
+) -> None:
+    user_id = uuid4()
+    event_id = uuid4()
+    activity_ids = [uuid4(), uuid4()]
+    for activity_id in activity_ids:
+        db_session.add(
+            ActivityRegistration(
+                activity_id=activity_id,
+                user_id=user_id,
+                event_id=event_id,
+            )
+        )
+    db_session.add(
+        ActivityRegistration(
+            activity_id=uuid4(),
+            user_id=uuid4(),
+            event_id=event_id,
+        )
+    )
+    db_session.commit()
+    override_auth_user(user_id)
+
+    response = client.get(
+        f"/users/{user_id}/activities",
+        headers={"Authorization": "Bearer access-token"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert {row["activityId"] for row in payload} == {str(a) for a in activity_ids}
+    assert all(row["userId"] == str(user_id) for row in payload)

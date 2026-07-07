@@ -45,7 +45,7 @@ def register(
     auth_user: UserResponse = Depends(get_current_user),
     events_client: EventsClient = Depends(get_events_client),
 ) -> RegistrationResponse:
-    registration = service.register(
+    registration, confirmation = service.register(
         body.event_id,
         body.user_id,
         auth_user.id,
@@ -58,7 +58,79 @@ def register(
         status=registration.status,
         createdAt=registration.created_at,
         updatedAt=registration.updated_at,
+        confirmationId=confirmation.id,
+        confirmationToken=confirmation.token,
     )
+
+
+# ---------------------------------------------------------------------------
+# GET /users/{user_id}/registrations – inscrições em eventos de um usuário
+# ---------------------------------------------------------------------------
+
+
+@router.get(
+    "/users/{user_id}/registrations",
+    response_model=list[GuestRegistrationResponse],
+    status_code=status.HTTP_200_OK,
+    summary="Lista as inscrições em eventos de um usuário",
+    description=(
+        "Retorna todas as inscrições em eventos do usuário informado (incluindo "
+        "canceladas, para histórico). O próprio usuário pode consultar suas inscrições; "
+        "managers e admins podem consultar as de qualquer usuário."
+    ),
+)
+def list_user_registrations(
+    user_id: UUID,
+    service: RegistrationService = Depends(get_registration_service),
+    auth_user: UserResponse = Depends(get_current_user),
+) -> list[GuestRegistrationResponse]:
+    ensure_self_or_manager_or_admin(auth_user, user_id)
+    registrations = service.list_user_registrations(user_id)
+    return [
+        GuestRegistrationResponse(
+            eventId=r.event_id,
+            userId=r.user_id,
+            status=r.status,
+            createdAt=r.created_at,
+            updatedAt=r.updated_at,
+        )
+        for r in registrations
+    ]
+
+
+# ---------------------------------------------------------------------------
+# GET /users/{user_id}/activities – inscrições em atividades de um usuário
+# ---------------------------------------------------------------------------
+
+
+@router.get(
+    "/users/{user_id}/activities",
+    response_model=list[ActivityRegistrationResponse],
+    status_code=status.HTTP_200_OK,
+    summary="Lista as inscrições em atividades (sub-áreas) de um usuário",
+    description=(
+        "Retorna todas as inscrições em atividades do usuário informado. "
+        "O próprio usuário pode consultar suas inscrições; managers e admins "
+        "podem consultar as de qualquer usuário."
+    ),
+)
+def list_user_activity_registrations(
+    user_id: UUID,
+    service: RegistrationService = Depends(get_registration_service),
+    auth_user: UserResponse = Depends(get_current_user),
+) -> list[ActivityRegistrationResponse]:
+    ensure_self_or_manager_or_admin(auth_user, user_id)
+    registrations = service.list_user_activity_registrations(user_id)
+    return [
+        ActivityRegistrationResponse(
+            activityId=r.activity_id,
+            userId=r.user_id,
+            eventId=r.event_id,
+            createdAt=r.created_at,
+            updatedAt=r.updated_at,
+        )
+        for r in registrations
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -234,7 +306,7 @@ def register_guest(
     auth_user: UserResponse = Depends(get_current_user),
     events_client: EventsClient = Depends(get_events_client),
 ) -> GuestRegistrationResponse:
-    registration = service.register(
+    registration, confirmation = service.register(
         event_id,
         body.user_id,
         auth_user.id,
@@ -247,6 +319,8 @@ def register_guest(
         status=registration.status,
         created_at=registration.created_at,
         updated_at=registration.updated_at,
+        confirmation_id=confirmation.id,
+        confirmation_token=confirmation.token,
     )
 
 

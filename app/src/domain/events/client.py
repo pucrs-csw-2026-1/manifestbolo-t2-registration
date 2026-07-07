@@ -1,5 +1,6 @@
 """HTTP client for the Events service."""
 
+from collections.abc import Callable
 import logging
 from typing import Any, TypeVar
 from uuid import UUID
@@ -17,6 +18,7 @@ from .schemas import (
     EventRoleResponse,
     EventsMetricsResponse,
 )
+from .service_token import get_events_service_token
 
 logger = logging.getLogger(__name__)
 
@@ -36,11 +38,20 @@ class EventsClient:
         timeout: float = 5.0,
         transport: httpx.BaseTransport | None = None,
         settings: Settings | None = None,
+        token_provider: Callable[..., str] | None = None,
     ) -> None:
         app_settings = settings or get_settings()
+        self._settings = app_settings
         self._base_url = base_url or app_settings.EVENTS_SERVICE_BASE_URL
         self._timeout = timeout
         self._transport = transport
+        # Injetável para testes; em produção usa o token de serviço real.
+        self._token_provider = token_provider
+
+    def _fetch_token(self, *, force_refresh: bool = False) -> str:
+        if self._token_provider is not None:
+            return self._token_provider(force_refresh=force_refresh)
+        return get_events_service_token(self._settings, force_refresh=force_refresh)
 
     def list_events(self, page: int = 1, limit: int = 20) -> EventListResponse:
         response = self._request(
@@ -98,13 +109,36 @@ class EventsClient:
         allow_not_found: bool = False,
         **kwargs: Any,
     ) -> httpx.Response:
+        response = self._send(method, path, force_refresh=False, **kwargs)
+        if response.status_code == status.HTTP_401_UNAUTHORIZED:
+            # Token expirado/rotacionado — renova e tenta uma única vez.
+            response = self._send(method, path, force_refresh=True, **kwargs)
+
+        self._raise_for_error(response, allow_not_found=allow_not_found)
+        return response
+
+    def _send(
+        self,
+        method: str,
+        path: str,
+        *,
+        force_refresh: bool,
+        **kwargs: Any,
+    ) -> httpx.Response:
+        try:
+            token = self._fetch_token(force_refresh=force_refresh)
+        except (httpx.HTTPError, KeyError, ValueError) as exc:
+            logger.warning("Failed to obtain events-service token: %s", exc)
+            raise self._service_unavailable() from exc
+
+        headers = {**kwargs.pop("headers", {}), "Authorization": f"Bearer {token}"}
         try:
             with httpx.Client(
                 base_url=self._base_url,
                 timeout=self._timeout,
                 transport=self._transport,
             ) as client:
-                response = client.request(method, path, **kwargs)
+                return client.request(method, path, headers=headers, **kwargs)
         except httpx.TimeoutException as exc:
             logger.warning("Events service timeout on %s %s", method, path)
             raise self._service_unavailable() from exc
@@ -113,9 +147,6 @@ class EventsClient:
                 "Events service request failed on %s %s: %s", method, path, exc
             )
             raise self._service_unavailable() from exc
-
-        self._raise_for_error(response, allow_not_found=allow_not_found)
-        return response
 
     @staticmethod
     def _parse_response(response: httpx.Response, model: type[ModelT]) -> ModelT:
