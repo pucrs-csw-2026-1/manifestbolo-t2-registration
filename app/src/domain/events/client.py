@@ -11,8 +11,6 @@ from pydantic import BaseModel
 
 from src.config import Settings, get_settings
 
-from .service_token import get_events_service_token
-
 from .schemas import (
     ActivityResponse,
     EventListResponse,
@@ -20,6 +18,7 @@ from .schemas import (
     EventRoleResponse,
     EventsMetricsResponse,
 )
+from .service_token import get_events_service_token
 
 logger = logging.getLogger(__name__)
 
