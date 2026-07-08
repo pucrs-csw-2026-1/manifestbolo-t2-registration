@@ -15,7 +15,7 @@ from src.domain.events.schemas import ActivityResponse, EventResponse
 from .enums import RegistrationStatus
 from .model import ActivityRegistration, Registration, ValidationToken
 from .repository import RegistrationRepository, get_registration_repository
-from .schemas import AvailableEventResponse
+from .schemas import AvailableEventResponse, EventActivityResponse
 
 
 class RegistrationService:
@@ -125,6 +125,58 @@ class RegistrationService:
             )
 
         return available_events
+
+    def list_event_activities(
+        self,
+        event_id: UUID,
+        events_client: EventsClient,
+    ) -> list[EventActivityResponse]:
+        # Garante o 404 do contrato quando o evento não existe no events-service.
+        if events_client.get_event_by_id(event_id) is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Event not found.",
+            )
+
+        activities = events_client.list_event_activities(event_id)
+        activity_uuids_by_id = self._activity_uuids_by_id(activities)
+        registration_counts = self.repository.count_by_activity_ids(
+            list(activity_uuids_by_id.values())
+        )
+
+        event_activities: list[EventActivityResponse] = []
+        for activity in activities:
+            activity_uuid = activity_uuids_by_id.get(activity.id_activity)
+            registered_count = (
+                registration_counts.get(activity_uuid, 0) if activity_uuid else 0
+            )
+            available_slots = (
+                max(0, activity.capacity_activity - registered_count)
+                if activity.capacity_activity is not None
+                else None
+            )
+
+            event_activities.append(
+                EventActivityResponse(
+                    activityId=activity.id_activity,
+                    title=activity.title_activity,
+                    description=activity.description_activity,
+                    type=activity.type,
+                    startsAt=activity.starts_at,
+                    endsAt=activity.ends_at,
+                    timezone=activity.timezone,
+                    registrationDeadline=activity.registration_deadline_activity,
+                    thumbnailUrl=activity.thumbnail_url,
+                    maxCapacity=activity.capacity_activity,
+                    registeredCount=registered_count,
+                    availableSlots=available_slots,
+                    workloadMinutes=activity.workload_minutes,
+                    category=activity.category_activity,
+                    language=activity.language_activity,
+                )
+            )
+
+        return event_activities
 
     def list_activity_user_ids(self, activity_id: UUID) -> list[UUID]:
         return self.repository.list_user_ids_by_activity(activity_id)
@@ -319,6 +371,18 @@ class RegistrationService:
         if date.tzinfo is None:
             date = date.replace(tzinfo=UTC)
         return date < now
+
+    @staticmethod
+    def _activity_uuids_by_id(
+        activities: list[ActivityResponse],
+    ) -> dict[str, UUID]:
+        activity_uuids: dict[str, UUID] = {}
+        for activity in activities:
+            try:
+                activity_uuids[activity.id_activity] = UUID(activity.id_activity)
+            except ValueError:
+                continue
+        return activity_uuids
 
     @staticmethod
     def _event_uuids_by_id(events: list[EventResponse]) -> dict[str, UUID]:

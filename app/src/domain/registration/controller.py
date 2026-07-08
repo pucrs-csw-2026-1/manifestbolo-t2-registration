@@ -22,6 +22,7 @@ from .schemas import (
     CheckInStatusResponse,
     ConfirmationCodeRequest,
     ConfirmationResponse,
+    EventActivityResponse,
     GuestRegistrationRequest,
     GuestRegistrationResponse,
     RegistrationCreateRequest,
@@ -157,6 +158,36 @@ def list_available_events(
     events_client: EventsClient = Depends(get_events_client),
 ) -> list[AvailableEventResponse]:
     return service.list_available_events(events_client)
+
+
+# ---------------------------------------------------------------------------
+# GET /events/{event_id}/activities – atividades de um evento
+# ---------------------------------------------------------------------------
+
+
+@router.get(
+    "/events/{event_id}/activities",
+    response_model=list[EventActivityResponse],
+    status_code=status.HTTP_200_OK,
+    summary="Lista as atividades de um evento com a contagem de inscritos",
+    description=(
+        "Consulta o microserviço de eventos para obter as atividades (sub-áreas) do "
+        "evento informado e cruza cada uma com o total de inscrições registradas neste "
+        "serviço, calculando as vagas restantes quando a atividade possui capacidade "
+        "máxima. Endpoint público: não exige autenticação do usuário; este serviço se "
+        "autentica internamente como serviço no microserviço de eventos. "
+        "Retorna 404 caso o evento não exista no microserviço de eventos."
+    ),
+    responses={
+        404: {"description": "Evento não encontrado no microserviço de eventos"},
+    },
+)
+def list_event_activities(
+    event_id: UUID,
+    service: RegistrationService = Depends(get_registration_service),
+    events_client: EventsClient = Depends(get_events_client),
+) -> list[EventActivityResponse]:
+    return service.list_event_activities(event_id, events_client)
 
 
 # ---------------------------------------------------------------------------

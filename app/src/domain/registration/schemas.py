@@ -92,6 +92,69 @@ class AvailableEventResponse(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# GET /events/{event_id}/activities  –  atividades de um evento
+# ---------------------------------------------------------------------------
+
+
+class EventActivityResponse(BaseModel):
+    """Representa uma atividade de um evento com a contagem de inscritos locais."""
+
+    activity_id: str = Field(
+        ..., alias="activityId", description="ID único da atividade"
+    )
+    title: str = Field(..., description="Título da atividade")
+    description: str | None = Field(None, description="Descrição da atividade")
+    type: str = Field(
+        ...,
+        description="Tipo da atividade (workshop, palestra, mesa_redonda, ...)",
+    )
+    starts_at: datetime = Field(
+        ..., alias="startsAt", description="Início da atividade"
+    )
+    ends_at: datetime = Field(
+        ..., alias="endsAt", description="Encerramento da atividade"
+    )
+    timezone: str = Field(..., description="Fuso horário da atividade")
+    registration_deadline: datetime | None = Field(
+        None,
+        alias="registrationDeadline",
+        description="Prazo final para inscrição na atividade, se houver",
+    )
+    thumbnail_url: str | None = Field(
+        None,
+        alias="thumbnailUrl",
+        description="URL da imagem de capa da atividade, se houver",
+    )
+    max_capacity: int | None = Field(
+        None,
+        alias="maxCapacity",
+        description="Capacidade máxima de inscritos, se houver",
+    )
+    registered_count: int = Field(
+        ...,
+        alias="registeredCount",
+        description="Número atual de inscritos na atividade (neste serviço)",
+    )
+    available_slots: int | None = Field(
+        None,
+        alias="availableSlots",
+        description=(
+            "Vagas restantes (max_capacity - registered_count); "
+            "null quando a atividade não tem capacidade máxima"
+        ),
+    )
+    workload_minutes: int = Field(
+        ...,
+        alias="workloadMinutes",
+        description="Carga horária da atividade em minutos",
+    )
+    category: str | None = Field(None, description="Categoria da atividade")
+    language: str | None = Field(None, description="Idioma da atividade")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+# ---------------------------------------------------------------------------
 # GET /events/{event_id}/registrations  –  inscritos de um evento
 # ---------------------------------------------------------------------------
 

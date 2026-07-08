@@ -139,13 +139,23 @@ class RegistrationRepository:
     def count_registered_users_by_event_id(self, event_id: UUID) -> int:
         return self.count_registered_users_by_event_ids([event_id]).get(event_id, 0)
 
-    def count_by_activity_id(self, activity_id: UUID) -> int:
-        return (
-            self.db.query(func.count(ActivityRegistration.user_id))
-            .filter(ActivityRegistration.activity_id == activity_id)
-            .scalar()
-            or 0
+    def count_by_activity_ids(self, activity_ids: list[UUID]) -> dict[UUID, int]:
+        if not activity_ids:
+            return {}
+
+        rows = (
+            self.db.query(
+                ActivityRegistration.activity_id,
+                func.count(ActivityRegistration.user_id),
+            )
+            .filter(ActivityRegistration.activity_id.in_(activity_ids))
+            .group_by(ActivityRegistration.activity_id)
+            .all()
         )
+        return {activity_id: count for activity_id, count in rows}
+
+    def count_by_activity_id(self, activity_id: UUID) -> int:
+        return self.count_by_activity_ids([activity_id]).get(activity_id, 0)
 
     def list_user_ids_by_activity(self, activity_id: UUID) -> list[UUID]:
         rows = (
